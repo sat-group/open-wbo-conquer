@@ -30,7 +30,9 @@ protected:
 
   StatusCode linearsu();
 
-  Solver *buildSATSolver(); // Rebuild MaxSAT solver.
+  StatusCode linearmsu();
+
+  Solver *rebuildSATSolver(); // Rebuild MaxSAT solver.
   void relaxFormula(); // Relaxes soft clauses.
 
 };
