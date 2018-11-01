@@ -142,6 +142,8 @@ StatusCode Basic::linearmsu() {
   /* TODO: relax the soft clauses. Note you can use/change the relaxFormula method */
   relaxFormula();
 
+  findUnitCores();
+
   /* TODO: initialize the SAT solver with the hard and soft clauses. Note you can 
            use/change the buildSATsolver method */
   Solver* sat_solver = rebuildSATSolver(); // replace NULL with the properly initialization
@@ -248,6 +250,36 @@ StatusCode Basic::linearmsu() {
    * _UNKNOWN_
    * _ERROR_ */
   return _UNKNOWN_;
+}
+
+void Basic::findUnitCores() {
+
+	Solver *sat_solver = rebuildSATSolver();
+
+	vec<bool> is_UC;
+
+	int numfound = 0;
+
+	lbool res = l_True;
+
+	printf("hi\n");
+
+	is_UC.growTo(maxsat_formula->nSoft(), false);
+	for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+        Soft &s = getSoftClause(i);
+        vec<Lit> assumptions;
+        assumptions.push(~s.assumption_var);
+        res = searchSATSolver(sat_solver, assumptions);
+        if (res == l_False)
+		{
+			is_UC[i] = true;
+			numfound++;
+		}
+    }
+
+    	printf("hi2\n");
+
+	printf("found %d unit cores @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
 }
 
 Solver* Basic::rebuildSATSolver() {
