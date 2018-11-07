@@ -35,6 +35,7 @@ protected:
   Solver *rebuildSATSolver(); // Rebuild MaxSAT solver.
   void relaxFormula(); // Relaxes soft clauses.
   void findUnitCores();
+  void findDisjointCores();
 
 };
 } // namespace openwbo

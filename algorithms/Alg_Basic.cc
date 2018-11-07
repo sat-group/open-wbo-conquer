@@ -144,6 +144,8 @@ StatusCode Basic::linearmsu() {
 
   findUnitCores();
 
+  findDisjointCores();
+
   /* TODO: initialize the SAT solver with the hard and soft clauses. Note you can 
            use/change the buildSATsolver method */
   Solver* sat_solver = rebuildSATSolver(); // replace NULL with the properly initialization
@@ -188,8 +190,8 @@ StatusCode Basic::linearmsu() {
           assumptions.push(~s.assumption_var);
       }
 
-    printf("cardinality variables size: %d\n", cardinality_variables.size());
-    printf("current cost is: %llu\n\n", cost);
+    // printf("cardinality variables size: %d\n", cardinality_variables.size());
+    // printf("current cost is: %llu\n\n", cost);
 
     Encoder *encoder = new Encoder();
     encoder->encodeCardinality(sat_solver, cardinality_variables, cost);
@@ -215,7 +217,7 @@ StatusCode Basic::linearmsu() {
 
       /* How to extract a core from the SAT solver?
        * This is only useful for the MSU3 algorithm */
-      printf("conflict size: %d\n\n", sat_solver->conflict.size());
+      // printf("conflict size: %d\n\n", sat_solver->conflict.size());
       for (int i = 0; i < sat_solver->conflict.size(); i++) {
         if (core_mapping.find(sat_solver->conflict[i]) != core_mapping.end()) {
           active_soft[core_mapping[sat_solver->conflict[i]]] = true;
@@ -262,24 +264,71 @@ void Basic::findUnitCores() {
 
 	lbool res = l_True;
 
-	printf("hi\n");
-
 	is_UC.growTo(maxsat_formula->nSoft(), false);
+
 	for (int i = 0; i < maxsat_formula->nSoft(); i++) {
-        Soft &s = getSoftClause(i);
-        vec<Lit> assumptions;
-        assumptions.push(~s.assumption_var);
-        res = searchSATSolver(sat_solver, assumptions);
-        if (res == l_False)
-		{
+    Soft &s = getSoftClause(i);
+    vec<Lit> assumptions;
+    assumptions.push(~s.assumption_var);
+    res = searchSATSolver(sat_solver, assumptions);
+    if (res == l_False) {
 			is_UC[i] = true;
 			numfound++;
 		}
-    }
-
-    	printf("hi2\n");
+  }
 
 	printf("found %d unit cores @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
+}
+
+void Basic::findDisjointCores() {
+
+  Solver *sat_solver = rebuildSATSolver();
+
+  int n_soft = maxsat_formula->nSoft();
+
+  vec<bool> in_core;
+
+  std::map<Lit, int> core_mapping; 
+
+  int numFound = 0;
+
+  vec<std::vector<int>> cores;
+
+  in_core.growTo(n_soft, false);
+
+  for (int i = 0; i < n_soft; i++) {
+    Soft &s = getSoftClause(i);
+    core_mapping[s.assumption_var] = i;
+  }
+
+  lbool res;
+
+  while (true) {
+    vec<Lit> assumptions;
+    for (int i = 0; i < n_soft; ++i) {
+      Soft &s = getSoftClause(i);
+      if (!in_core[i]) {
+        assumptions.push(~s.assumption_var);
+      }
+    }
+    res = searchSATSolver(sat_solver, assumptions);
+    if (res == l_True) {
+      printf("numFound: %d disjoint cores @@@@@@@@\n", numFound);
+      return;
+    }
+    else {
+      numFound++;
+      // std::vector<int> core;
+      for (int i = 0; i < sat_solver->conflict.size(); i++) {
+          int clause = core_mapping[sat_solver->conflict[i]];
+          if (core_mapping.find(sat_solver->conflict[i]) != core_mapping.end()) {
+            in_core[clause] = true;
+            // core.push_back(clause);
+          }
+      }
+      // cores.push(core);
+    }
+  }
 }
 
 Solver* Basic::rebuildSATSolver() {
