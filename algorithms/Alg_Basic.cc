@@ -144,6 +144,8 @@ StatusCode Basic::linearmsu() {
 
   findUnitCores();
 
+  findUPUnitCores();
+
   findDisjointCores();
 
   /* TODO: initialize the SAT solver with the hard and soft clauses. Note you can 
@@ -252,6 +254,44 @@ StatusCode Basic::linearmsu() {
    * _UNKNOWN_
    * _ERROR_ */
   return _UNKNOWN_;
+}
+
+void Basic::findUPUnitCores() {
+
+  Solver *sat_solver = rebuildSATSolver();
+
+  vec<bool> is_UC;
+
+  int numfound = 0;
+  is_UC.growTo(maxsat_formula->nSoft(), false);
+
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+    Soft &s = getSoftClause(i);
+    vec<Lit> implied;
+    bool conflict = sat_solver->propagateLit(~s.assumption_var, implied);
+    if (conflict) {
+      is_UC[i] = true;
+      numfound++;
+    } else {
+      if (sign(~s.assumption_var)){
+          printf("~%d -> ",var(~s.assumption_var)+1);
+      } else {
+          printf("%d -> ",var(~s.assumption_var)+1);
+      }
+      for (int j = 0; j < implied.size(); j++){
+        if (sign(implied[j])){
+          printf("~%d ; ",var(implied[j])+1);
+      } else {
+          printf("%d ; ",var(implied[j])+1);
+      }
+      }
+      printf("\n");
+    }
+
+  }
+
+  printf("found %d unit cores using unit propagation @@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
+
 }
 
 void Basic::findUnitCores() {

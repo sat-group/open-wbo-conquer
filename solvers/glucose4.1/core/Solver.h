@@ -269,6 +269,31 @@ public:
     // Important stats completely related to search. Keep here
     uint64_t solves,starts,decisions,propagations,conflicts,conflictsRestarts;
 
+    // HACK to expose propagation for Open-WBO
+    bool propagateLit(Lit l, vec<Lit>& implied){
+        cancelUntil(0);
+
+        // literal is an unit clause
+        if (value(l) != l_Undef){
+            if (value(l) == l_False){
+                return true;
+            } else {
+                return false;
+            }
+        }
+        assert (value(l) == l_Undef);
+
+        newDecisionLevel();
+        uncheckedEnqueue(l);
+        int a = trail.size();
+        CRef cr = propagate();
+        for(int i = a; i < trail.size(); i++) {
+            implied.push(trail[i]);
+        }
+        cancelUntil(0);
+        return (cr != CRef_Undef);
+    }
+
 protected:
 
     long curRestart;
