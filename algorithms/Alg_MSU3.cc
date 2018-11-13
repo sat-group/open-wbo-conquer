@@ -70,7 +70,9 @@ StatusCode MSU3::MSU3_iterative() {
 
   lbool res = l_True;
   initRelaxation();
+  findUnitCores();
   solver = rebuildSolver();
+  lbCost = is_UC.size();
   vec<Lit> assumptions;
   vec<Lit> joinObjFunction;
   vec<Lit> currentObjFunction;
@@ -143,7 +145,7 @@ StatusCode MSU3::MSU3_iterative() {
       for (int i = 0; i < maxsat_formula->nSoft(); i++) {
         if (activeSoft[i])
           currentObjFunction.push(getRelaxationLit(i));
-        else
+        else if (!is_UC[i])
           assumptions.push(~getAssumptionLit(i));
       }
 
@@ -228,19 +230,24 @@ Solver *MSU3::rebuildSolver() {
   for (int i = 0; i < maxsat_formula->nVars(); i++)
     newSATVariable(S);
 
-  for (int i = 0; i < maxsat_formula->nHard(); i++)
-    S->addClause(getHardClause(i).clause);
-
   vec<Lit> clause;
   for (int i = 0; i < maxsat_formula->nSoft(); i++) {
     clause.clear();
     Soft &s = getSoftClause(i);
     s.clause.copyTo(clause);
-    for (int j = 0; j < s.relaxation_vars.size(); j++)
-      clause.push(s.relaxation_vars[j]);
+    if (is_UC.size() == 0 || !is_UC[i]){
+      for (int j = 0; j < s.relaxation_vars.size(); j++)
+        clause.push(s.relaxation_vars[j]);
 
-    S->addClause(clause);
+      S->addClause(clause);
+    }
+    else {
+      maxsat_formula->addHardClause(clause);
+    }
   }
+
+  for (int i = 0; i < maxsat_formula->nHard(); i++)
+    S->addClause(getHardClause(i).clause);
 
   // printf("c #PB: %d\n", maxsat_formula->nPB());
   for (int i = 0; i < maxsat_formula->nPB(); i++) {
@@ -307,6 +314,40 @@ void MSU3::initRelaxation() {
     s.assumption_var = l;
     objFunction.push(l);
   }
+}
+
+/*_________________________________________________________________________________________________
+  |
+  |  initRelaxation : [void] ->  [void]
+  |
+  |  Description:
+  |
+  |    Initializes the relaxation variables by adding a fresh variable to the
+  |    'relaxationVars' of each soft clause.
+  |
+  |  Post-conditions:
+  |    * 'objFunction' contains all relaxation variables that were added to soft
+  |      clauses.
+  |
+  |________________________________________________________________________________________________@*/
+void MSU3::findUnitCores() {
+
+  Solver *sat_solver = rebuildSolver();
+  is_UC.clear();
+  int numfound = 0;
+  lbool res = l_True;
+  is_UC.growTo(maxsat_formula->nSoft(), false);
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+    Soft &s = getSoftClause(i);
+    vec<Lit> assumptions;
+    assumptions.push(~s.assumption_var);
+    res = searchSATSolver(sat_solver, assumptions);
+    if (res == l_False) {
+      is_UC[i] = true;
+      numfound++;
+    }
+  }
+  printf("found %d unit cores @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
 }
 
 // Print MSU3 configuration.

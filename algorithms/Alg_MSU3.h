@@ -89,6 +89,7 @@ protected:
 
   // Other
   void initRelaxation(); // Relaxes soft clauses.
+  void findUnitCores();
 
   Solver *solver;  // SAT Solver used as a black box.
   Encoder encoder; // Interface for the encoder of constraints to CNF.
@@ -102,6 +103,7 @@ protected:
   vec<Lit> objFunction;
   vec<int> coeffs; // Coefficients of the literals that are used in the
                    // constraint that excludes models.
+  vec<bool> is_UC;
 
   std::map<Lit, int> coreMapping; // Mapping between the assumption literal and
                                   // the respective soft clause.
