@@ -75,7 +75,7 @@ StatusCode Basic::linearsu(){
       // SAT solver returned satisfiable; What does this mean?
       // (*TODO*) fill the rest...
       printf("%llu\n", cost);
-      printAnswer(_OPTIMUM_);
+      // printAnswer(_OPTIMUM_);
       return _OPTIMUM_;
     } else {
       // SAT solver returned unsatisfiable; What does this mean?
@@ -144,12 +144,7 @@ StatusCode Basic::linearmsu() {
   relaxFormula();
 
   findUnitCores();
-<<<<<<< HEAD
-=======
 
-  findUPUnitCores();
-
->>>>>>> 61704ad892a97cb30bb911dda665c9743499280a
   findDisjointCores();
 
   Solver* sat_solver = rebuildSATSolver();
@@ -199,7 +194,7 @@ StatusCode Basic::linearmsu() {
     
     if (res == l_True) {
       printf("cost: %llu\n", cost);
-      printAnswer(_OPTIMUM_);
+      // printAnswer(_OPTIMUM_);
       return _OPTIMUM_;
     } 
     else if (res == l_False) {
@@ -307,7 +302,7 @@ void Basic::findDisjointCores() {
 
   int numFound = 0;
 
-  vec<std::vector<int>> cores;
+  std::vector<std::vector<int>> cores;
 
   in_core.growTo(n_soft, false);
 
@@ -333,15 +328,15 @@ void Basic::findDisjointCores() {
     }
     else {
       numFound++;
-      // std::vector<int> core;
+      std::vector<int> core;
       for (int i = 0; i < sat_solver->conflict.size(); i++) {
           int clause = core_mapping[sat_solver->conflict[i]];
           if (core_mapping.find(sat_solver->conflict[i]) != core_mapping.end()) {
             in_core[clause] = true;
-            // core.push_back(clause);
+            core.push_back(clause);
           }
       }
-      // cores.push(core);
+      cores.push_back(core);
     }
   }
 }

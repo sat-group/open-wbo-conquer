@@ -52,6 +52,7 @@ public:
     incremental_strategy = _INCREMENTAL_ITERATIVE_;
     encoding = _CARD_TOTALIZER_;
     encoder.setCardEncoding(encoding);
+    uc_number = 0;
   }
   ~MSU3() {
     if (solver != NULL)
@@ -90,6 +91,7 @@ protected:
   // Other
   void initRelaxation(); // Relaxes soft clauses.
   void findUnitCores();
+  void findDisjointCores();
 
   Solver *solver;  // SAT Solver used as a black box.
   Encoder encoder; // Interface for the encoder of constraints to CNF.
@@ -104,6 +106,9 @@ protected:
   vec<int> coeffs; // Coefficients of the literals that are used in the
                    // constraint that excludes models.
   vec<bool> is_UC;
+  vec<bool> in_core;
+  int uc_number;
+  std::vector<std::vector<int>> cores;
 
   std::map<Lit, int> coreMapping; // Mapping between the assumption literal and
                                   // the respective soft clause.

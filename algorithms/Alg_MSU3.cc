@@ -71,8 +71,9 @@ StatusCode MSU3::MSU3_iterative() {
   lbool res = l_True;
   initRelaxation();
   findUnitCores();
+  findDisjointCores();
   solver = rebuildSolver();
-  lbCost = is_UC.size();
+  //lbCost = is_UC.size();
   vec<Lit> assumptions;
   vec<Lit> joinObjFunction;
   vec<Lit> currentObjFunction;
@@ -82,6 +83,33 @@ StatusCode MSU3::MSU3_iterative() {
   activeSoft.growTo(maxsat_formula->nSoft(), false);
   for (int i = 0; i < maxsat_formula->nSoft(); i++)
     coreMapping[getAssumptionLit(i)] = i;
+
+  // building the cardinality constraint with the disjoint core information
+  if (cores.size() > 0 && false){
+
+    // for (int i = 0; i < cores.size(); i++){
+    //   vec<Lit> clause;
+    //   for (int j = 0; j < cores[i].size(); j++){
+    //     Soft &s = getSoftClause(j);
+    //     clause.push(s.assumption_var);
+    //   }
+    //   solver->addClause(clause);
+    // }
+
+      for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+        if (in_core[i]){
+          currentObjFunction.push(getRelaxationLit(i));
+          activeSoft[i] = true;
+        }
+      }
+      assert (currentObjFunction.size() > 0);
+      lbCost = cores.size();
+
+     encoder.buildCardinality(solver, currentObjFunction, lbCost);
+     encoder.incUpdateCardinality(solver, currentObjFunction, lbCost,
+                                       encodingAssumptions);
+  }
+        
 
   for (;;) {
 
@@ -95,10 +123,17 @@ StatusCode MSU3::MSU3_iterative() {
       ubCost = newCost;
 
       if (nbSatisfiable == 1) {
-        for (int i = 0; i < objFunction.size(); i++)
-          assumptions.push(~objFunction[i]);
+        // for (int i = 0; i < objFunction.size(); i++){
+        //   assumptions.push(~objFunction[i]);
+        // }
+
+      for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+        if (!activeSoft[i])
+          assumptions.push(~getAssumptionLit(i));
+      }
+
       } else {
-        assert(lbCost == newCost);
+        assert(lbCost+uc_number == newCost);
         printAnswer(_OPTIMUM_);
         return _OPTIMUM_;
       }
@@ -108,14 +143,14 @@ StatusCode MSU3::MSU3_iterative() {
       lbCost++;
       nbCores++;
       if (verbosity > 0)
-        printf("c LB : %-12" PRIu64 "\n", lbCost);
+        printf("c LB : %-12" PRIu64 "\n", lbCost + uc_number);
 
       if (nbSatisfiable == 0) {
         printAnswer(_UNSATISFIABLE_);
         return _UNSATISFIABLE_;
       }
 
-      if (lbCost == ubCost) {
+      if (lbCost + uc_number == ubCost) {
         assert(nbSatisfiable > 0);
         if (verbosity > 0)
           printf("c LB = UB\n");
@@ -242,7 +277,11 @@ Solver *MSU3::rebuildSolver() {
       S->addClause(clause);
     }
     else {
-      maxsat_formula->addHardClause(clause);
+      for (int j = 0; j < clause.size(); j++){
+        vec<Lit> cls;
+        cls.push(~clause[j]);
+        maxsat_formula->addHardClause(cls);
+      }
     }
   }
 
@@ -345,9 +384,57 @@ void MSU3::findUnitCores() {
     if (res == l_False) {
       is_UC[i] = true;
       numfound++;
+      uc_number++;
     }
   }
   printf("found %d unit cores @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
+}
+
+void MSU3::findDisjointCores() {
+
+  Solver *sat_solver = rebuildSolver();
+
+  int n_soft = maxsat_formula->nSoft();
+
+  std::map<Lit, int> core_mapping; 
+
+  int numFound = 0;
+
+  in_core.growTo(n_soft, false);
+
+  for (int i = 0; i < n_soft; i++) {
+    Soft &s = getSoftClause(i);
+    core_mapping[s.assumption_var] = i;
+  }
+
+  lbool res;
+
+  while (true) {
+    vec<Lit> assumptions;
+    for (int i = 0; i < n_soft; ++i) {
+      Soft &s = getSoftClause(i);
+      if (!in_core[i]) {
+        assumptions.push(~s.assumption_var);
+      }
+    }
+    res = searchSATSolver(sat_solver, assumptions);
+    if (res == l_True) {
+      printf("numFound: %d disjoint cores @@@@@@@@\n", numFound);
+      return;
+    }
+    else {
+      numFound++;
+      std::vector<int> core;
+      for (int i = 0; i < sat_solver->conflict.size(); i++) {
+          int clause = core_mapping[sat_solver->conflict[i]];
+          if (core_mapping.find(sat_solver->conflict[i]) != core_mapping.end()) {
+            in_core[clause] = true;
+            core.push_back(clause);
+          }
+      }
+      cores.push_back(core);
+    }
+  }
 }
 
 // Print MSU3 configuration.
