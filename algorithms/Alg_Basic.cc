@@ -143,7 +143,11 @@ StatusCode Basic::linearmsu() {
   /* TODO: relax the soft clauses. Note you can use/change the relaxFormula method */
   relaxFormula();
 
-  findUnitCores();
+  // findUnitCores();
+
+  // findUPUnitCores();
+
+  findAtMost1();
 
   findDisjointCores();
 
@@ -226,6 +230,143 @@ StatusCode Basic::linearmsu() {
   return _UNKNOWN_;
 }
 
+static std::vector<Lit> vintersection(std::vector<Lit> &v1, std::vector<Lit> &v2) {
+  std::vector<Lit> v;
+
+  sort(v1.begin(), v1.end());
+  sort(v2.begin(), v2.end());
+
+  set_intersection(v1.begin(),v1.end(),v2.begin(),v2.end(),back_inserter(v));
+
+  return v;
+}
+
+static std::vector<Lit> vunion(std::vector<Lit> &v1, std::vector<Lit> &v2) {
+  std::vector<Lit> v;
+
+  sort(v1.begin(), v1.end());
+  sort(v2.begin(), v2.end());
+
+  set_union(v1.begin(),v1.end(),v2.begin(),v2.end(),back_inserter(v));
+
+  return v;
+}
+
+static std::vector<Lit> vdifference(std::vector<Lit> &v1, std::vector<Lit> &v2) {
+  std::vector<Lit> v;
+
+  sort(v1.begin(), v1.end());
+  sort(v2.begin(), v2.end());
+
+  set_difference(v1.begin(),v1.end(),v2.begin(),v2.end(),back_inserter(v));
+
+  return v;
+}
+
+void Basic::bronKerbosch(std::vector<Lit> R, std::vector<Lit> P, std::vector<Lit> X) {
+  if(P.empty() && X.empty()) {
+    am1.push_back(R);
+  }
+  auto i = P.begin();
+  while(!P.empty() && i != P.end()){
+    Lit x = *i;
+    std::vector<Lit> singleton = { x };
+    bronKerbosch(
+      vunion(R,singleton), 
+      vintersection(P,graph[x]),
+      vintersection(X,graph[x]));
+    P = vdifference(P,singleton);
+    X = vunion(X,singleton);
+    if(!P.empty())
+      i = P.begin();
+  }
+}
+
+void Basic::findAtMost1() {
+
+  Solver *sat_solver = rebuildSATSolver();
+
+  vec<bool> is_UC;
+  vec<bool> active_soft;
+  vec<vec<Lit>> cliques;
+
+  int numUCfound = 0;
+  is_UC.growTo(maxsat_formula->nSoft(), false);
+  active_soft.growTo(maxsat_formula->nSoft(), false);
+
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+    Soft &s = getSoftClause(i);
+    vec<Lit> implied;
+    bool conflict = sat_solver->propagateLit(~s.assumption_var, implied);
+    if (conflict) {
+      is_UC[i] = true;
+      numUCfound++;
+    } else {
+      std::vector<Lit> temp;
+      for (int j = 0; j < implied.size(); ++j)
+      {
+        if (var(implied[j])+1 > maxsat_formula->nInitialVars() && !sign(implied[j])){
+          temp.push_back(implied[j]);
+        }
+      }
+      if (temp.size() != 0){
+        graph[s.assumption_var] = temp;
+      }
+    }
+  }
+
+  auto i = graph.begin();
+
+  while (i != graph.end()) {
+    std::vector<Lit> &temp = i->second;
+    auto j = temp.begin();
+    while (j != temp.end()) {
+      Lit x = *j;
+      if (graph.count(x) != 1 || std::find(graph[x].begin(), graph[x].end(),i->first) == graph[x].end()) {
+        temp.erase(j);
+      }
+      ++j;
+    }
+    ++i;
+  }
+
+  // for (const auto &p : graph) {
+  //   // reverse sign, since reversed in graph
+  //   if (sign(p.first)){
+  //       printf("%d -> ",var(p.first)+1);
+  //     } else {
+  //       printf("~%d -> ",var(p.first)+1);
+  //     }
+  //   for (Lit x : p.second)
+  //   {
+  //     if (sign(x)){
+  //         printf("~%d ; ",var(x)+1);
+  //     } else {
+  //         printf("%d ; ",var(x)+1);
+  //     }
+  //   }
+  //   printf("\n");
+  // }
+
+  std::vector<Lit> v;
+  for(auto it = graph.begin(); it != graph.end(); ++it) {
+    v.push_back(it->first);
+  }
+
+  bronKerbosch({}, v, {});
+
+  for (std::vector<Lit> v : am1) {
+    printf("am1: ");
+    for (Lit l : v) {
+      printf("%d, ", var(l) + 1);
+    }
+    printf("\n");
+  }
+  
+  printf("found %d unit cores in AM1 @@@@@@@@\n", numUCfound);
+  printf("found potentially %lu am1\n", am1.size());
+}
+
 void Basic::findUPUnitCores() {
 
   Solver *sat_solver = rebuildSATSolver();
@@ -261,6 +402,7 @@ void Basic::findUPUnitCores() {
   }
 
   printf("found %d unit cores using unit propagation @@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
+  printf("inititial vars: %d\n", maxsat_formula->nInitialVars());
 
 }
 

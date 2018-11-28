@@ -37,7 +37,12 @@ protected:
   void findUPUnitCores();
   void findUnitCores();
   void findDisjointCores();
+  void findAtMost1();
+  void bronKerbosch(std::vector<Lit> R, std::vector<Lit> P, std::vector<Lit> X);
 
+  std::map<Lit, std::vector<Lit>> graph;
+  std::vector<std::vector<Lit>> am1;
+  int n_am1;
 };
 } // namespace openwbo
 
