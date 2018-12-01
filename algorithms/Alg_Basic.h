@@ -42,7 +42,7 @@ protected:
 
   std::map<Lit, std::vector<Lit>> graph;
   std::vector<std::vector<Lit>> am1;
-  int n_am1;
+  int lower_bound;
 };
 } // namespace openwbo
 

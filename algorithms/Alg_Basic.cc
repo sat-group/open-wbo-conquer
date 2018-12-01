@@ -264,7 +264,15 @@ static std::vector<Lit> vdifference(std::vector<Lit> &v1, std::vector<Lit> &v2) 
 }
 
 void Basic::bronKerbosch(std::vector<Lit> R, std::vector<Lit> P, std::vector<Lit> X) {
-  if(P.empty() && X.empty()) {
+  if(P.empty() && X.empty() && !R.empty()) {
+    int no_intersect = 1;
+    for (std::vector<Lit> v : am1) {
+      if (!(vintersection(v, R).empty())) {
+        no_intersect = 0;
+        break;
+      } 
+    }
+    lower_bound += no_intersect;
     am1.push_back(R);
   }
   auto i = P.begin();
@@ -287,7 +295,7 @@ void Basic::findAtMost1() {
   Solver *sat_solver = rebuildSATSolver();
 
   vec<bool> is_UC;
-  vec<bool> active_soft;
+  vec<bool> active_soft; // I don't think I use this.
   vec<vec<Lit>> cliques;
 
   int numUCfound = 0;
@@ -298,18 +306,19 @@ void Basic::findAtMost1() {
     Soft &s = getSoftClause(i);
     vec<Lit> implied;
     bool conflict = sat_solver->propagateLit(~s.assumption_var, implied);
-    if (conflict) {
+    if (conflict) { // Unit cores found here
       is_UC[i] = true;
       numUCfound++;
     } else {
       std::vector<Lit> temp;
       for (int j = 0; j < implied.size(); ++j)
       {
+        // If the Lit is a relaxation var and positive sign, push.
         if (var(implied[j])+1 > maxsat_formula->nInitialVars() && !sign(implied[j])){
           temp.push_back(implied[j]);
         }
       }
-      if (temp.size() != 0){
+      if (temp.size() != 0){ // graph is global, not at am1 yet. Just building graph.
         graph[s.assumption_var] = temp;
       }
     }
@@ -322,6 +331,7 @@ void Basic::findAtMost1() {
     auto j = temp.begin();
     while (j != temp.end()) {
       Lit x = *j;
+      // Preliminary filtering. Basically making the graph undirected
       if (graph.count(x) != 1 || std::find(graph[x].begin(), graph[x].end(),i->first) == graph[x].end()) {
         temp.erase(j);
       }
@@ -348,13 +358,16 @@ void Basic::findAtMost1() {
   //   printf("\n");
   // }
 
-  std::vector<Lit> v;
+  std::vector<Lit> v; // Filled with all Lits with an edge in the graph.
   for(auto it = graph.begin(); it != graph.end(); ++it) {
     v.push_back(it->first);
   }
 
+  // Finding maximal cliques. Puts them in am1 vector.
+  lower_bound = 0;
   bronKerbosch({}, v, {});
 
+  // Printing
   for (std::vector<Lit> v : am1) {
     printf("am1: ");
     for (Lit l : v) {
@@ -365,6 +378,7 @@ void Basic::findAtMost1() {
   
   printf("found %d unit cores in AM1 @@@@@@@@\n", numUCfound);
   printf("found potentially %lu am1\n", am1.size());
+  printf("loose lower bound: %d\n", lower_bound);
 }
 
 void Basic::findUPUnitCores() {
