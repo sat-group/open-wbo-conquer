@@ -107,6 +107,10 @@ int main(int argc, char **argv) {
         "c WARNING: for repeatability, setting FPU to use double precision\n");
 #endif
 
+    BoolOption detectamo("SCS","detectamo","AMO detection.\n",true);
+    BoolOption disjoint("SCS","disjoint","Disjoint cores.\n",true);
+    BoolOption unit("SCS","unit","Unit cores.\n",true);
+
     BoolOption printmodel("Open-WBO", "print-model", "Print model.\n", true);
 
     StringOption printsoft("Open-WBO", "print-unsat-soft", "Print unsatisfied soft claues in the optimal assignment.\n", NULL);
@@ -187,7 +191,7 @@ int main(int argc, char **argv) {
       break;
 
     case _ALGORITHM_BASIC_:
-      S = new Basic();
+      S = new Basic(unit, detectamo, disjoint);
       break;
 
     case _ALGORITHM_BEST_:

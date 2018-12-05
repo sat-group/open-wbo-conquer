@@ -6,7 +6,174 @@ StatusCode Basic::search() {
   // Here you can control which algorithm is being used!
   // It if useful if you implement both linearsu and the MSU3 versions.
   // return linearsu();
-  return linearmsu();
+  //return linearmsu();
+  return evaluation();
+}
+
+StatusCode Basic::evaluation() {
+
+  lbool res = l_True;
+  initRelaxation();
+  solver = rebuildSolver();
+  vec<Lit> assumptions;
+  vec<Lit> joinObjFunction;
+  vec<Lit> currentObjFunction;
+  vec<Lit> encodingAssumptions;
+  encoder.setIncremental(_INCREMENTAL_ITERATIVE_);
+
+  activeSoft.growTo(maxsat_formula->nSoft(), false);
+  for (int i = 0; i < maxsat_formula->nSoft(); i++)
+    coreMapping[getAssumptionLit(i)] = i;
+
+  res = searchSATSolver(solver, assumptions);
+  assert (res == l_True);
+  bestCost = computeCostModel(solver->model);
+  saveModel(solver->model);
+  printBound(bestCost);
+
+  if (_unitCores) {
+    uCost = findUnitCores(solver);
+    if (uCost > 0){
+      if (verbosity > 0)
+        printf("c LB : %-12" PRIu64 "\n", lbCost+uCost);
+    }
+  } else {
+    unit_cores.growTo(maxsat_formula->nSoft(), false);
+  }
+
+  if (_amo)
+    lbCost = findAtMost1(solver);
+
+  if (_disjointCores)
+    findDisjointCores(solver);
+
+  if (disjoint_cores.size() > 0 || lbCost > 0){
+    // TODO: try the tree structure instead of direct encoding
+    for (int i = 0; i < disjoint_cores.size(); i++) {
+      vec<Lit> clause;
+      for (int j = 0; j < disjoint_cores[i].size(); j++) {
+        clause.push(getRelaxationLit(disjoint_cores[i][j]));
+        activeSoft[disjoint_cores[i][j]] = true;
+      }
+      //solver->addClause(clause);
+    }
+
+      currentObjFunction.clear();
+      assumptions.clear();
+      for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+        if (activeSoft[i])
+          currentObjFunction.push(getRelaxationLit(i));
+        else if (!unit_cores[i])
+          assumptions.push(~getAssumptionLit(i));
+      }
+
+      lbCost += disjoint_cores.size();
+
+      if (verbosity > 0)
+        printf("c LB : %-12" PRIu64 "\n", lbCost + uCost);
+
+      if (verbosity > 0)
+        printf("c Relaxed soft clauses %d / %d\n", currentObjFunction.size(),
+               objFunction.size());
+
+      if (!encoder.hasCardEncoding()) {
+        if (lbCost != (unsigned)currentObjFunction.size()) {
+          encoder.buildCardinality(solver, currentObjFunction, lbCost);
+          encoder.incUpdateCardinality(solver, currentObjFunction, lbCost,
+                                       encodingAssumptions);
+        }
+      }
+      for (int i = 0; i < encodingAssumptions.size(); i++)
+        assumptions.push(encodingAssumptions[i]);
+
+  } else {
+    printf("default!\n");
+    for (int i = 0; i < objFunction.size(); i++)
+          assumptions.push(~objFunction[i]);
+  }
+
+
+  for (;;) {
+
+    res = searchSATSolver(solver, assumptions);
+    if (res == l_True) {
+      uint64_t newCost = computeCostModel(solver->model);
+      if (newCost < bestCost) {
+        saveModel(solver->model);
+        printBound(newCost);
+        bestCost = newCost;
+      }
+        assert(lbCost+uCost == bestCost);
+        printAnswer(_OPTIMUM_);
+        return _OPTIMUM_;
+    }
+
+    if (res == l_False) {
+      lbCost++;
+      nbCores++;
+      if (verbosity > 0)
+        printf("c LB : %-12" PRIu64 "\n", lbCost + uCost);
+
+      if (lbCost+uCost == ubCost) {
+        assert(nbSatisfiable > 0);
+        if (verbosity > 0)
+          printf("c LB = UB\n");
+        printAnswer(_OPTIMUM_);
+        return _OPTIMUM_;
+      }
+
+      sumSizeCores += solver->conflict.size();
+
+      if (solver->conflict.size() == 0) {
+        printAnswer(_UNSATISFIABLE_);
+        return _UNSATISFIABLE_;
+      }
+
+      joinObjFunction.clear();
+      for (int i = 0; i < solver->conflict.size(); i++) {
+        if (coreMapping.find(solver->conflict[i]) != coreMapping.end()) {
+          assert(!activeSoft[coreMapping[solver->conflict[i]]]);
+          activeSoft[coreMapping[solver->conflict[i]]] = true;
+          joinObjFunction.push(
+              getRelaxationLit(coreMapping[solver->conflict[i]]));
+        }
+      }
+
+      currentObjFunction.clear();
+      assumptions.clear();
+      for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+        if (activeSoft[i])
+          currentObjFunction.push(getRelaxationLit(i));
+        else if (!unit_cores[i])
+          assumptions.push(~getAssumptionLit(i));
+      }
+
+      if (verbosity > 0)
+        printf("c Relaxed soft clauses %d / %d\n", currentObjFunction.size(),
+               objFunction.size());
+
+      if (!encoder.hasCardEncoding()) {
+        if (lbCost != (unsigned)currentObjFunction.size()) {
+          encoder.buildCardinality(solver, currentObjFunction, lbCost);
+          encoder.incUpdateCardinality(solver, currentObjFunction, lbCost,
+                                       encodingAssumptions);
+        }
+      } else {
+        // Incremental construction of the encoding.
+        if (joinObjFunction.size() > 0)
+          encoder.joinEncoding(solver, joinObjFunction, lbCost);
+
+        // The right-hand side is constrained using assumptions.
+        // NOTE: 'encodingAsssumptions' is modified in 'incrementalUpdate'.
+        encoder.incUpdateCardinality(solver, currentObjFunction, lbCost,
+                                     encodingAssumptions);
+      }
+
+      for (int i = 0; i < encodingAssumptions.size(); i++)
+        assumptions.push(encodingAssumptions[i]);
+    }
+  }
+  return _ERROR_;
 }
 
 StatusCode Basic::linearsu(){
@@ -147,9 +314,9 @@ StatusCode Basic::linearmsu() {
 
   // findUPUnitCores();
 
-  findAtMost1();
+  //findAtMost1();
 
-  findDisjointCores();
+  //findDisjointCores();
 
   Solver* sat_solver = rebuildSATSolver();
 
@@ -290,24 +457,29 @@ void Basic::bronKerbosch(std::vector<Lit> R, std::vector<Lit> P, std::vector<Lit
   }
 }
 
-void Basic::findAtMost1() {
+int Basic::findAtMost1(Solver *sat_solver) {
 
-  Solver *sat_solver = rebuildSATSolver();
+  //Solver *sat_solver = rebuildSATSolver();
 
-  vec<bool> is_UC;
-  vec<bool> active_soft; // I don't think I use this.
+  //vec<bool> is_UC;
+  //vec<bool> active_soft; // I don't think I use this.
   vec<vec<Lit>> cliques;
 
   int numUCfound = 0;
-  is_UC.growTo(maxsat_formula->nSoft(), false);
-  active_soft.growTo(maxsat_formula->nSoft(), false);
+  if (!_unitCores)
+    unit_cores.growTo(maxsat_formula->nSoft(), false);
+  //active_soft.growTo(maxsat_formula->nSoft(), false);
 
   for (int i = 0; i < maxsat_formula->nSoft(); i++) {
     Soft &s = getSoftClause(i);
     vec<Lit> implied;
     bool conflict = sat_solver->propagateLit(~s.assumption_var, implied);
     if (conflict) { // Unit cores found here
-      is_UC[i] = true;
+      if (!_unitCores) {
+        unit_cores[i] = true;
+        vec<Lit> clause;
+        sat_solver->addClause(s.assumption_var);
+      }
       numUCfound++;
     } else {
       std::vector<Lit> temp;
@@ -368,34 +540,48 @@ void Basic::findAtMost1() {
   bronKerbosch({}, v, {});
 
   // Printing
+  Encoder *encoder = new Encoder();
+  std::set<Lit> bb;
+
   for (std::vector<Lit> v : am1) {
-    printf("am1: ");
+    //printf("am1: ");
+    vec<Lit> clause;
     for (Lit l : v) {
-      printf("%d, ", var(l) + 1);
+      clause.push(l);
+      bb.insert(l);
+      //printf("%d, ", var(l) + 1);
     }
-    printf("\n");
+    encoder->encodeAMO(sat_solver, clause);
+    //printf("\n");
   }
+
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+      if (bb.find(getAssumptionLit(i)) != bb.end()){
+        activeSoft[i] = true;
+      }
+  }
+
+  if (!_unitCores)
+    uCost = numUCfound;
   
-  printf("found %d unit cores in AM1 @@@@@@@@\n", numUCfound);
-  printf("found potentially %lu am1\n", am1.size());
-  printf("loose lower bound: %d\n", lower_bound);
+  printf("c [SCS] found %d unit cores in AM1\n", numUCfound);
+  printf("c [SCS] found potentially %lu AM1\n", am1.size());
+  printf("c [SCS] loose lower bound: %d\n", lower_bound);
+  return lower_bound;
 }
 
 void Basic::findUPUnitCores() {
 
   Solver *sat_solver = rebuildSATSolver();
-
-  vec<bool> is_UC;
-
   int numfound = 0;
-  is_UC.growTo(maxsat_formula->nSoft(), false);
+  unit_cores.growTo(maxsat_formula->nSoft(), false);
 
   for (int i = 0; i < maxsat_formula->nSoft(); i++) {
     Soft &s = getSoftClause(i);
     vec<Lit> implied;
     bool conflict = sat_solver->propagateLit(~s.assumption_var, implied);
     if (conflict) {
-      is_UC[i] = true;
+      unit_cores[i] = true;
       numfound++;
     } else {
       if (sign(~s.assumption_var)){
@@ -420,35 +606,47 @@ void Basic::findUPUnitCores() {
 
 }
 
-void Basic::findUnitCores() {
+int Basic::findUnitCores(Solver *sat_solver) {
 
-	Solver *sat_solver = rebuildSATSolver();
-
-	vec<bool> is_UC;
+  int limit = 10000;
+	//Solver *sat_solver = rebuildSATSolver();
 
 	int numfound = 0;
 
 	lbool res = l_True;
 
-	is_UC.growTo(maxsat_formula->nSoft(), false);
+	unit_cores.growTo(maxsat_formula->nSoft(), false);
 
 	for (int i = 0; i < maxsat_formula->nSoft(); i++) {
     Soft &s = getSoftClause(i);
     vec<Lit> assumptions;
     assumptions.push(~s.assumption_var);
+    sat_solver->setConfBudget(limit);
     res = searchSATSolver(sat_solver, assumptions);
+    sat_solver->budgetOff();
     if (res == l_False) {
-			is_UC[i] = true;
+			unit_cores[i] = true;
 			numfound++;
-		}
+      sat_solver->addClause(s.assumption_var);
+		} else if (res == l_True){
+      uint64_t newCost = computeCostModel(solver->model);
+      if (newCost < bestCost) {
+        saveModel(solver->model);
+        printBound(newCost);
+        bestCost = newCost;
+      }
+    }
   }
 
-	printf("found %d unit cores @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
+  printf ("c [SCS] %d unit cores\n",numfound);
+  return numfound;
+	//printf("found %d unit cores @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
 }
 
-void Basic::findDisjointCores() {
+void Basic::findDisjointCores(Solver * sat_solver) {
 
-  Solver *sat_solver = rebuildSATSolver();
+  //Solver *sat_solver = rebuildSATSolver();
+  int limit = 500000;
 
   int n_soft = maxsat_formula->nSoft();
 
@@ -457,8 +655,6 @@ void Basic::findDisjointCores() {
   std::map<Lit, int> core_mapping; 
 
   int numFound = 0;
-
-  std::vector<std::vector<int>> cores;
 
   in_core.growTo(n_soft, false);
 
@@ -477,9 +673,20 @@ void Basic::findDisjointCores() {
         assumptions.push(~s.assumption_var);
       }
     }
+    sat_solver->setConfBudget(limit);
     res = searchSATSolver(sat_solver, assumptions);
-    if (res == l_True) {
-      printf("numFound: %d disjoint cores @@@@@@@@\n", numFound);
+    sat_solver->budgetOff();
+    if (res != l_False) {
+      if (res == l_True) {
+        uint64_t newCost = computeCostModel(solver->model);
+        if (newCost < bestCost) {
+          saveModel(solver->model);
+          printBound(newCost);
+          bestCost = newCost;
+        }
+      }
+      printf("c [SCS] %d disjoint cores\n",numFound);
+      //printf("numFound: %d disjoint cores @@@@@@@@\n", numFound);
       return;
     }
     else {
@@ -492,7 +699,7 @@ void Basic::findDisjointCores() {
             core.push_back(clause);
           }
       }
-      cores.push_back(core);
+      disjoint_cores.push_back(core);
     }
   }
 }
@@ -542,4 +749,74 @@ void Basic::relaxFormula() {
     s.relaxation_vars.push(l);
     s.assumption_var = l;
   }
+}
+
+void Basic::initRelaxation() {
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+    Lit l = maxsat_formula->newLiteral();
+    Soft &s = getSoftClause(i);
+    s.relaxation_vars.push(l);
+    s.assumption_var = l;
+    objFunction.push(l);
+  }
+}
+
+Solver *Basic::rebuildSolver() {
+
+  Solver *S = newSATSolver();
+
+  reserveSATVariables(S, maxsat_formula->nVars());
+
+  for (int i = 0; i < maxsat_formula->nVars(); i++)
+    newSATVariable(S);
+
+  for (int i = 0; i < maxsat_formula->nHard(); i++)
+    S->addClause(getHardClause(i).clause);
+
+  vec<Lit> clause;
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+    clause.clear();
+    Soft &s = getSoftClause(i);
+    s.clause.copyTo(clause);
+    for (int j = 0; j < s.relaxation_vars.size(); j++)
+      clause.push(s.relaxation_vars[j]);
+
+    S->addClause(clause);
+  }
+
+  // printf("c #PB: %d\n", maxsat_formula->nPB());
+  for (int i = 0; i < maxsat_formula->nPB(); i++) {
+    Encoder *enc = new Encoder(_INCREMENTAL_NONE_, _CARD_MTOTALIZER_,
+                               _AMO_LADDER_, _PB_GTE_);
+
+    // Make sure the PB is on the form <=
+    if (!maxsat_formula->getPBConstraint(i)->_sign)
+      maxsat_formula->getPBConstraint(i)->changeSign();
+
+    enc->encodePB(S, maxsat_formula->getPBConstraint(i)->_lits,
+                  maxsat_formula->getPBConstraint(i)->_coeffs,
+                  maxsat_formula->getPBConstraint(i)->_rhs);
+
+    // maxsat_formula->getPBConstraint(i)->print();
+
+    delete enc;
+  }
+
+  // printf("c #Card: %d\n", maxsat_formula->nCard());
+  for (int i = 0; i < maxsat_formula->nCard(); i++) {
+    Encoder *enc = new Encoder(_INCREMENTAL_NONE_, _CARD_MTOTALIZER_,
+                               _AMO_LADDER_, _PB_GTE_);
+
+    if (maxsat_formula->getCardinalityConstraint(i)->_rhs == 1) {
+      enc->encodeAMO(S, maxsat_formula->getCardinalityConstraint(i)->_lits);
+    } else {
+      enc->encodeCardinality(S,
+                             maxsat_formula->getCardinalityConstraint(i)->_lits,
+                             maxsat_formula->getCardinalityConstraint(i)->_rhs);
+    }
+
+    delete enc;
+  }
+
+  return S;
 }
