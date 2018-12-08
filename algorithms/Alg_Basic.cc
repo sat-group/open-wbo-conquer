@@ -32,7 +32,7 @@ StatusCode Basic::evaluation() {
   printBound(bestCost);
 
   if (_unitCores) {
-    uCost = findUnitCores(solver);
+    uCost = findUPUnitCores(solver);
     if (uCost > 0){
       if (verbosity > 0)
         printf("c LB : %-12" PRIu64 "\n", lbCost+uCost);
@@ -67,7 +67,8 @@ StatusCode Basic::evaluation() {
           assumptions.push(~getAssumptionLit(i));
       }
 
-      lbCost += disjoint_cores.size();
+      if (disjoint_cores.size() < lbCost && disjoint_cores.size() > 0 || lbCost == 0)
+        lbCost = disjoint_cores.size();
 
       if (verbosity > 0)
         printf("c LB : %-12" PRIu64 "\n", lbCost + uCost);
@@ -547,7 +548,7 @@ int Basic::findAtMost1(Solver *sat_solver) {
     //printf("am1: ");
     vec<Lit> clause;
     for (Lit l : v) {
-      clause.push(l);
+      clause.push(~l);
       bb.insert(l);
       //printf("%d, ", var(l) + 1);
     }
@@ -570,9 +571,9 @@ int Basic::findAtMost1(Solver *sat_solver) {
   return lower_bound;
 }
 
-void Basic::findUPUnitCores() {
+int Basic::findUPUnitCores(Solver *sat_solver) {
 
-  Solver *sat_solver = rebuildSATSolver();
+  //Solver *sat_solver = rebuildSATSolver();
   int numfound = 0;
   unit_cores.growTo(maxsat_formula->nSoft(), false);
 
@@ -583,26 +584,35 @@ void Basic::findUPUnitCores() {
     if (conflict) {
       unit_cores[i] = true;
       numfound++;
+      sat_solver->addClause(s.assumption_var);
     } else {
-      if (sign(~s.assumption_var)){
-          printf("~%d -> ",var(~s.assumption_var)+1);
-      } else {
-          printf("%d -> ",var(~s.assumption_var)+1);
+      uint64_t newCost = computeCostModel(solver->model);
+      if (newCost < bestCost) {
+        saveModel(solver->model);
+        printBound(newCost);
+        bestCost = newCost;
       }
-      for (int j = 0; j < implied.size(); j++){
-        if (sign(implied[j])){
-          printf("~%d ; ",var(implied[j])+1);
-      } else {
-          printf("%d ; ",var(implied[j])+1);
-      }
-      }
-      printf("\n");
+      // if (sign(~s.assumption_var)){
+      //     printf("~%d -> ",var(~s.assumption_var)+1);
+      // } else {
+      //     printf("%d -> ",var(~s.assumption_var)+1);
+      // }
+      // for (int j = 0; j < implied.size(); j++){
+      //   if (sign(implied[j])){
+      //     printf("~%d ; ",var(implied[j])+1);
+      // } else {
+      //     printf("%d ; ",var(implied[j])+1);
+      // }
+      // }
+      // printf("\n");
     }
 
   }
 
-  printf("found %d unit cores using unit propagation @@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
-  printf("inititial vars: %d\n", maxsat_formula->nInitialVars());
+  //printf("found %d unit cores using unit propagation @@@@@@@@@@@@@@@@@@@@@@@\n", numfound);
+  //printf("inititial vars: %d\n", maxsat_formula->nInitialVars());
+  printf ("c [SCS] %d unit cores\n",numfound);
+  return numfound;
 
 }
 
@@ -702,6 +712,7 @@ void Basic::findDisjointCores(Solver * sat_solver) {
       disjoint_cores.push_back(core);
     }
   }
+  sat_solver->budgetOff();
 }
 
 Solver* Basic::rebuildSATSolver() {

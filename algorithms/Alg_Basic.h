@@ -41,7 +41,7 @@ protected:
 
   Solver *rebuildSATSolver(); // Rebuild MaxSAT solver.
   void relaxFormula(); // Relaxes soft clauses.
-  void findUPUnitCores();
+  int findUPUnitCores(Solver * sat_solver);
   int findUnitCores(Solver * sat_solver);
   void findDisjointCores(Solver * sat_solver);
   int findAtMost1(Solver * sat_solver);
