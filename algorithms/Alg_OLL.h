@@ -45,13 +45,17 @@ namespace openwbo {
 class OLL : public MaxSAT {
 
 public:
-  OLL(int verb = _VERBOSITY_MINIMAL_, int enc = _CARD_TOTALIZER_) {
+  OLL(int verb = _VERBOSITY_MINIMAL_, int enc = _CARD_TOTALIZER_, bool a = false, bool b = false, bool c = false) {
     solver = NULL;
     verbosity = verb;
     incremental_strategy = _INCREMENTAL_ITERATIVE_;
     encoding = enc;
     encoder.setCardEncoding(enc);
     min_weight = 1;
+    bestCost = UINT64_MAX;
+    _unitCores = a;
+    _amo = b;
+    _disjointCores = c;
   }
   ~OLL() {
     if (solver != NULL)
@@ -120,6 +124,61 @@ protected:
                           std::set<Lit> &cardinality_assumptions);
 
   uint64_t min_weight;
+
+  // improvements
+  int findUPUnitCores(Solver *sat_solver);
+  uint64_t bestCost;
+  int findAtMost1(Solver * sat_solver);
+  void bronKerbosch(std::vector<Lit> R, std::vector<Lit> P, std::vector<Lit> X);
+  std::map<Lit, std::vector<Lit>> graph;
+  std::vector<std::vector<Lit>> am1;
+  int lower_bound;
+  std::vector<std::vector<Lit>> disjoint_cores;
+  std::vector<std::vector<Lit>> unit_cores;
+  std::vector<std::vector<Lit>> amo_cores;
+
+
+static std::vector<Lit> vintersection(std::vector<Lit> &v1, std::vector<Lit> &v2) {
+  std::vector<Lit> v;
+
+  sort(v1.begin(), v1.end());
+  sort(v2.begin(), v2.end());
+
+  set_intersection(v1.begin(),v1.end(),v2.begin(),v2.end(),back_inserter(v));
+
+  return v;
+}
+
+static std::vector<Lit> vunion(std::vector<Lit> &v1, std::vector<Lit> &v2) {
+  std::vector<Lit> v;
+
+  sort(v1.begin(), v1.end());
+  sort(v2.begin(), v2.end());
+
+  set_union(v1.begin(),v1.end(),v2.begin(),v2.end(),back_inserter(v));
+
+  return v;
+}
+
+static std::vector<Lit> vdifference(std::vector<Lit> &v1, std::vector<Lit> &v2) {
+  std::vector<Lit> v;
+
+  sort(v1.begin(), v1.end());
+  sort(v2.begin(), v2.end());
+
+  set_difference(v1.begin(),v1.end(),v2.begin(),v2.end(),back_inserter(v));
+
+  return v;
+}
+
+void findDisjointCores(Solver * sat_solver);
+
+  bool _unitCores;
+  bool _disjointCores;
+  bool _amo;
+
+  
+
 };
 } // namespace openwbo
 

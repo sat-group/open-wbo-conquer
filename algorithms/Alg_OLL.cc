@@ -29,6 +29,209 @@
 
 using namespace openwbo;
 
+void OLL::findDisjointCores(Solver * sat_solver) {
+
+  int limit = 100000;
+
+  int n_soft = maxsat_formula->nSoft();
+
+  vec<bool> in_core;
+
+  std::map<Lit, int> core_mapping; 
+
+  int numFound = 0;
+
+  in_core.growTo(n_soft, false);
+
+  for (int i = 0; i < n_soft; i++) {
+    Soft &s = getSoftClause(i);
+    core_mapping[s.assumption_var] = i;
+  }
+
+  lbool res;
+
+  while (true) {
+    vec<Lit> assumptions;
+    for (int i = 0; i < n_soft; ++i) {
+      Soft &s = getSoftClause(i);
+      if (!in_core[i]) {
+        assumptions.push(~s.assumption_var);
+      }
+    }
+    sat_solver->setConfBudget(limit);
+    res = searchSATSolver(sat_solver, assumptions);
+    sat_solver->budgetOff();
+    if (res != l_False) {
+      if (res == l_True) {
+        // uint64_t newCost = computeCostModel(solver->model);
+        // if (newCost < bestCost) {
+        //   saveModel(solver->model);
+        //   printBound(newCost);
+        //   bestCost = newCost;
+        // }
+      }
+      printf("c [SCS] %d disjoint cores\n",numFound);
+      break;
+    }
+    else {
+      numFound++;
+      std::vector<Lit> core;
+      for (int i = 0; i < sat_solver->conflict.size(); i++) {
+          int clause = core_mapping[sat_solver->conflict[i]];
+          core.push_back(sat_solver->conflict[i]);
+          if (core_mapping.find(sat_solver->conflict[i]) != core_mapping.end()) {
+            in_core[clause] = true;
+            //core.push_back(clause);
+          }
+      }
+      disjoint_cores.push_back(core);
+    }
+  }
+  sat_solver->budgetOff();
+}
+
+void OLL::bronKerbosch(std::vector<Lit> R, std::vector<Lit> P, std::vector<Lit> X) {
+  if(P.empty() && X.empty() && !R.empty()) {
+    int no_intersect = 1;
+    for (std::vector<Lit> v : am1) {
+      if (!(vintersection(v, R).empty())) {
+        no_intersect = 0;
+        break;
+      } 
+    }
+    lower_bound += no_intersect;
+    am1.push_back(R);
+  }
+  auto i = P.begin();
+  while(!P.empty() && i != P.end()){
+    Lit x = *i;
+    std::vector<Lit> singleton = { x };
+    bronKerbosch(
+      vunion(R,singleton), 
+      vintersection(P,graph[x]),
+      vintersection(X,graph[x]));
+    P = vdifference(P,singleton);
+    X = vunion(X,singleton);
+    if(!P.empty())
+      i = P.begin();
+  }
+}
+
+int OLL::findAtMost1(Solver *sat_solver) {
+
+  vec<vec<Lit>> cliques;
+
+  int numUCfound = 0;
+
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+    Soft &s = getSoftClause(i);
+    vec<Lit> implied;
+    bool conflict = sat_solver->propagateLit(~s.assumption_var, implied);
+    if (conflict) { // Unit cores found here
+      // if (!_unitCores) {
+      //   unit_cores[i] = true;
+      //   vec<Lit> clause;
+      //   sat_solver->addClause(s.assumption_var);
+      // }
+      numUCfound++;
+    } else {
+      std::vector<Lit> temp;
+      for (int j = 0; j < implied.size(); ++j)
+      {
+        // If the Lit is a relaxation var and positive sign, push.
+        if (var(implied[j])+1 > maxsat_formula->nInitialVars() && !sign(implied[j])){
+          temp.push_back(implied[j]);
+        }
+      }
+      if (temp.size() != 0){ // graph is global, not at am1 yet. Just building graph.
+        graph[s.assumption_var] = temp;
+      }
+    }
+  }
+
+  auto i = graph.begin();
+
+  while (i != graph.end()) {
+    std::vector<Lit> &temp = i->second;
+    auto j = temp.begin();
+    while (j != temp.end()) {
+      Lit x = *j;
+      // Preliminary filtering. Basically making the graph undirected
+      if (graph.count(x) != 1 || std::find(graph[x].begin(), graph[x].end(),i->first) == graph[x].end()) {
+        temp.erase(j);
+      }
+      ++j;
+    }
+    ++i;
+  }
+
+  std::vector<Lit> v; // Filled with all Lits with an edge in the graph.
+  for(auto it = graph.begin(); it != graph.end(); ++it) {
+    v.push_back(it->first);
+  }
+
+  // Finding maximal cliques. Puts them in am1 vector.
+  lower_bound = 0;
+  bronKerbosch({}, v, {});
+
+  // Printing
+  Encoder *encoder = new Encoder();
+  std::set<Lit> bb;
+
+  for (std::vector<Lit> v : am1) {
+    //printf("am1: ");
+    vec<Lit> clause;
+    std::vector<Lit> conflict;
+    for (Lit l : v) {
+      clause.push(~l);
+      bb.insert(l);
+      conflict.push_back(l);
+      //printf("%d, ", var(l) + 1);
+    }
+    encoder->encodeAMO(sat_solver, clause);
+    amo_cores.push_back(conflict);
+    //printf("\n");
+  }
+
+  // for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+  //     if (bb.find(getAssumptionLit(i)) != bb.end()){
+  //       activeSoft[i] = true;
+  //     }
+  // }
+
+  // if (!_unitCores)
+  //   uCost = numUCfound;
+  
+  printf("c [SCS] found %d unit cores in AM1\n", numUCfound);
+  printf("c [SCS] found potentially %lu AM1\n", am1.size());
+  printf("c [SCS] loose lower bound: %d\n", lower_bound);
+  return lower_bound;
+}
+
+int OLL::findUPUnitCores(Solver *sat_solver) {
+
+  int numfound = 0;
+  
+  for (int i = 0; i < maxsat_formula->nSoft(); i++) {
+    Soft &s = getSoftClause(i);
+    vec<Lit> implied;
+    bool conflict = sat_solver->propagateLit(~s.assumption_var, implied);
+    if (conflict) {
+      numfound++;
+      sat_solver->addClause(s.assumption_var);
+      for (int j = 0; j < s.clause.size(); j++){
+        sat_solver->addClause(~s.clause[j]);
+      }
+      std::vector<Lit> conflict;
+      conflict.push_back(s.assumption_var);
+      unit_cores.push_back(conflict);
+    }
+  }
+
+  printf ("c [SCS] %d unit cores\n",numfound);
+  return numfound;
+}
+
 uint64_t OLL::findNextWeight(uint64_t weight,
                              std::set<Lit> &cardinality_assumptions) {
 
@@ -111,16 +314,48 @@ StatusCode OLL::unweighted() {
   vec<Lit> encodingAssumptions;
   encoder.setIncremental(_INCREMENTAL_ITERATIVE_);
 
+  std::set<Lit> cardinality_assumptions;
+  vec<Encoder *> soft_cardinality;
+
+  if (_unitCores)
+    findUPUnitCores(solver);
+
+  if (_amo){
+   int amo = findAtMost1(solver);
+   if (amo != amo_cores.size())
+    amo_cores.clear();
+  }
+
+  if (_disjointCores)
+    findDisjointCores(solver);
+
   activeSoft.growTo(maxsat_formula->nSoft(), false);
   for (int i = 0; i < maxsat_formula->nSoft(); i++)
     coreMapping[maxsat_formula->getSoftClause(i).assumption_var] = i;
 
-  std::set<Lit> cardinality_assumptions;
-  vec<Encoder *> soft_cardinality;
+
+  // initialize assumptions
+  // for (int i = 0; i < maxsat_formula->nSoft(); i++)
+  //   assumptions.push(~maxsat_formula->getSoftClause(i).assumption_var);
 
   for (;;) {
 
-    res = searchSATSolver(solver, assumptions);
+    if (nbSatisfiable == 0)
+      res = searchSATSolver(solver, assumptions);
+    else {
+      if (unit_cores.size() > 0){
+        res = l_False;
+      }
+      else if (amo_cores.size() > 0) {
+        res = l_False; 
+      }
+      else if (disjoint_cores.size() > 0) {
+        res = l_False;
+      } else {
+        res = searchSATSolver(solver, assumptions);
+      }
+    }
+
     if (res == l_True) {
       nbSatisfiable++;
       uint64_t newCost = computeCostModel(solver->model);
@@ -175,18 +410,42 @@ StatusCode OLL::unweighted() {
         return _OPTIMUM_;
       }
 
-      sumSizeCores += solver->conflict.size();
+      vec<Lit> current_core;
+      if (unit_cores.size() > 0){
+        for (int i = 0; i < unit_cores[unit_cores.size()-1].size(); i++){
+          current_core.push(unit_cores[unit_cores.size()-1][i]);
+        }
+        unit_cores.pop_back();
+      }
+      else if (amo_cores.size() > 0){
+        for (int i = 0; i < amo_cores[amo_cores.size()-1].size(); i++){
+          current_core.push(amo_cores[amo_cores.size()-1][i]);
+        }
+        amo_cores.pop_back();
+      }
+      else if (disjoint_cores.size() > 0){ 
+       for (int i = 0; i < disjoint_cores[disjoint_cores.size()-1].size(); i++){
+          current_core.push(disjoint_cores[disjoint_cores.size()-1][i]);
+        }
+        disjoint_cores.pop_back(); 
+      }
+      else {
+        solver->conflict.copyTo(current_core);
+      }
+
+      //sumSizeCores += solver->conflict.size();
+      sumSizeCores += current_core.size();
 
       vec<Lit> soft_relax;
       vec<Lit> cardinality_relax;
 
-      for (int i = 0; i < solver->conflict.size(); i++) {
-        Lit p = solver->conflict[i];
+      for (int i = 0; i < current_core.size(); i++) {
+        Lit p = current_core[i];
         if (coreMapping.find(p) != coreMapping.end()) {
           assert(!activeSoft[coreMapping[p]]);
-          activeSoft[coreMapping[solver->conflict[i]]] = true;
+          activeSoft[coreMapping[current_core[i]]] = true;
           assert(p ==
-                 maxsat_formula->getSoftClause(coreMapping[solver->conflict[i]])
+                 maxsat_formula->getSoftClause(coreMapping[current_core[i]])
                      .relaxation_vars[0]);
           soft_relax.push(p);
         }
@@ -200,7 +459,7 @@ StatusCode OLL::unweighted() {
 
           // this is a soft cardinality -- bound must be increased
           std::pair<std::pair<int, int>, int> soft_id =
-              boundMapping[solver->conflict[i]];
+              boundMapping[current_core[i]];
           // increase the bound
           assert(soft_id.first.first < soft_cardinality.size());
           assert(soft_cardinality[soft_id.first.first]->hasCardEncoding());

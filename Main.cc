@@ -107,9 +107,9 @@ int main(int argc, char **argv) {
         "c WARNING: for repeatability, setting FPU to use double precision\n");
 #endif
 
-    BoolOption detectamo("SCS","detectamo","AMO detection.\n",true);
-    BoolOption disjoint("SCS","disjoint","Disjoint cores.\n",true);
-    BoolOption unit("SCS","unit","Unit cores.\n",true);
+    BoolOption detectamo("SCS","detectamo","AMO detection.\n",false);
+    BoolOption disjoint("SCS","disjoint","Disjoint cores.\n",false);
+    BoolOption unit("SCS","unit","Unit cores.\n",false);
 
     BoolOption printmodel("Open-WBO", "print-model", "Print model.\n", true);
 
@@ -187,7 +187,7 @@ int main(int argc, char **argv) {
       break;
 
     case _ALGORITHM_OLL_:
-      S = new OLL(verbosity, cardinality);
+      S = new OLL(verbosity, cardinality, unit, detectamo, disjoint);
       break;
 
     case _ALGORITHM_BASIC_:
